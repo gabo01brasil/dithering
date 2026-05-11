@@ -1,0 +1,561 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Dithering Filter</title>
+<style>
+@import url('https://db.onlinewebfonts.com/c/f18149d69a4651070f2f51e1c6c2485c?family=Africa+Trial+Cliff');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; }
+
+#msg {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #000; color: #fff; font: 1rem/1.6 system-ui, sans-serif;
+  text-align: center; padding: 2rem; pointer-events: none;
+}
+
+#controls {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  display: none; flex-direction: column; gap: 8px;
+  background: rgba(0,0,0,0.62);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255,255,255,0.12);
+  padding: 12px 16px;
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+  color: #fff; font: 13px/1.2 system-ui, sans-serif; user-select: none;
+}
+
+.ctrl-sliders {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px;
+}
+.ctrl-sliders label {
+  display: flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0;
+}
+.ctrl-sliders label strong { min-width: 28px; text-align: right; font-weight: 600; }
+.ctrl-sliders input[type="range"] { flex: 1; min-width: 0; accent-color: #fff; cursor: pointer; }
+
+.ctrl-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.seg-group {
+  display: inline-flex; border-radius: 16px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+.segBtn {
+  padding: 5px 10px; border: none; border-radius: 0;
+  background: rgba(255,255,255,0.08); color: #fff; cursor: pointer;
+  font: 12px system-ui, sans-serif; white-space: nowrap; transition: background 0.15s;
+}
+.segBtn + .segBtn { border-left: 1px solid rgba(255,255,255,0.2); }
+.segBtn:hover  { background: rgba(255,255,255,0.2); }
+.segBtn.active { background: rgba(255,255,255,0.38); }
+
+.ctrl-btns > button, #pauseBtn {
+  padding: 6px 14px; border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.1); color: #fff; cursor: pointer;
+  font: 13px system-ui, sans-serif; white-space: nowrap; transition: background 0.15s;
+}
+.ctrl-btns > button:hover, #pauseBtn:hover { background: rgba(255,255,255,0.22); }
+.ctrl-btns > button.active {
+  background: rgba(80,140,255,0.35); border-color: rgba(100,160,255,0.6);
+}
+#pauseBtn.paused { background: rgba(220,60,60,0.35); border-color: rgba(220,80,80,0.6); }
+
+.ctrl-system { display: flex; align-items: center; gap: 8px; }
+#cameraSelect {
+  flex: 1; min-width: 0; background: rgba(255,255,255,0.1); color: #fff;
+  border: 1px solid rgba(255,255,255,0.3); border-radius: 20px;
+  padding: 6px 28px 6px 12px; font: 13px system-ui, sans-serif; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23fff'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#cameraSelect option { background: #1a1a1a; color: #fff; }
+
+/* ── QR modal ────────────────────────────────────────────────────────────────── */
+#qrModal {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.78);
+  align-items: center; justify-content: center; z-index: 100;
+}
+#qrModal.open { display: flex; }
+#qrBox {
+  background: #fff; border-radius: 16px; padding: 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  max-width: 90vw;
+}
+#qrImg { width: 200px; height: 200px; display: block; }
+#qrUrl { font: 11px/1.4 monospace; color: #333; word-break: break-all; text-align: center; max-width: 200px; }
+#qrClose { padding: 7px 24px; border-radius: 20px; border: none; background: #222; color: #fff; cursor: pointer; font-size: 13px; }
+
+@media (min-width: 700px) {
+  #controls {
+    bottom: 20px; left: 50%; right: auto; transform: translateX(-50%);
+    border-top: none; border-radius: 40px;
+    border: 1px solid rgba(255,255,255,0.12);
+    flex-direction: row; flex-wrap: wrap;
+    align-items: center; gap: 14px;
+    padding: 10px 20px; width: max-content; max-width: calc(100vw - 40px);
+  }
+  .ctrl-sliders { display: contents; }
+  .ctrl-sliders label { gap: 6px; }
+  .ctrl-sliders input[type="range"] { width: 90px; flex: none; }
+  .ctrl-btns, .ctrl-system { gap: 10px; }
+  #cameraSelect { flex: none; max-width: 160px; }
+}
+
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="msg">Waiting for camera…</div>
+
+<div id="controls">
+  <div class="ctrl-sliders">
+    <label>Scale: <strong id="scaleVal">4</strong>
+      <input type="range" id="scaleSlider" min="1" max="20" value="4" step="1">
+    </label>
+    <label>Threshold: <strong id="thresholdVal">0</strong>
+      <input type="range" id="thresholdSlider" min="-50" max="50" value="0" step="1">
+    </label>
+    <label>Highlights: <strong id="highlightsVal">0</strong>
+      <input type="range" id="highlightsSlider" min="-50" max="50" value="0" step="1">
+    </label>
+    <label>Midtones: <strong id="midtonesVal">0</strong>
+      <input type="range" id="midtonesSlider" min="-50" max="50" value="0" step="1">
+    </label>
+  </div>
+
+  <div class="ctrl-btns">
+    <span class="seg-group" id="ditherGroup">
+      <button class="segBtn active" data-dither="bayer2">Bayer 2</button>
+      <button class="segBtn"        data-dither="bayer4">Bayer 4</button>
+      <button class="segBtn"        data-dither="bayer8">Bayer 8</button>
+      <button class="segBtn"        data-dither="floyd">Floyd</button>
+      <button class="segBtn"        data-dither="atkinson">Atkinson</button>
+    </span>
+    <span class="seg-group" id="paletteGroup">
+      <button class="segBtn active" data-palette="0">B&amp;W</button>
+      <button class="segBtn"        data-palette="1">Inv</button>
+      <button class="segBtn"        data-palette="2">Green</button>
+      <button class="segBtn"        data-palette="3">Amber</button>
+    </span>
+    <button id="flipBtn">Mirror</button>
+    <button id="photoBtn">📷 Photo</button>
+  </div>
+
+  <div class="ctrl-system">
+    <select id="cameraSelect" title="Select camera"></select>
+    <button id="qrBtn">QR</button>
+    <button id="pauseBtn">Pause</button>
+  </div>
+</div>
+
+<!-- QR modal -->
+<div id="qrModal">
+  <div id="qrBox">
+    <img id="qrImg" src="" alt="QR Code">
+    <p id="qrUrl"></p>
+    <button id="qrClose">Close</button>
+  </div>
+</div>
+
+<video id="video" autoplay muted playsinline style="display:none"></video>
+
+<script>
+'use strict';
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const canvas           = document.getElementById('canvas');
+const ctx              = canvas.getContext('2d');
+const msg              = document.getElementById('msg');
+const controls         = document.getElementById('controls');
+const video            = document.getElementById('video');
+const scaleSlider      = document.getElementById('scaleSlider');
+const scaleVal         = document.getElementById('scaleVal');
+const thresholdSlider  = document.getElementById('thresholdSlider');
+const thresholdVal     = document.getElementById('thresholdVal');
+const highlightsSlider = document.getElementById('highlightsSlider');
+const highlightsVal    = document.getElementById('highlightsVal');
+const midtonesSlider   = document.getElementById('midtonesSlider');
+const midtonesVal      = document.getElementById('midtonesVal');
+const flipBtn          = document.getElementById('flipBtn');
+const photoBtn         = document.getElementById('photoBtn');
+const pauseBtn         = document.getElementById('pauseBtn');
+const qrBtn            = document.getElementById('qrBtn');
+const qrModal          = document.getElementById('qrModal');
+const qrImg            = document.getElementById('qrImg');
+const qrUrl            = document.getElementById('qrUrl');
+const qrClose          = document.getElementById('qrClose');
+const cameraSelect     = document.getElementById('cameraSelect');
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let scale      = 4;
+let threshold  = 0;
+let highlights = 0;
+let midtones   = 0;
+let ditherMode = 'bayer2';
+let paletteIdx = 0;
+let flipped    = false;
+let paused     = false;
+let raf        = null;
+let currentCamId = null;
+
+// ── Palettes (ABGR for Uint32Array, little-endian) ────────────────────────────
+const PALETTES = [
+  { bg: 0xFF000000, fg: 0xFFFFFFFF },           // B&W
+  { bg: 0xFFFFFFFF, fg: 0xFF000000 },           // Inv
+  { bg: 0xFF000000, fg: 0xFF41FF00 },           // Green
+  { bg: 0xFF000000, fg: 0xFF00B3FF },           // Amber
+];
+
+// ── Bayer matrices ────────────────────────────────────────────────────────────
+const BAYER2 = new Uint8Array([0,2, 3,1]);
+const BAYER4 = new Uint8Array([
+   0, 8, 2,10,
+  12, 4,14, 6,
+   3,11, 1, 9,
+  15, 7,13, 5,
+]);
+const BAYER8 = new Uint8Array([
+   0,32, 8,40, 2,34,10,42,
+  48,16,56,24,50,18,58,26,
+  12,44, 4,36,14,46, 6,38,
+  60,28,52,20,62,30,54,22,
+   3,35,11,43, 1,33, 9,41,
+  51,19,59,27,49,17,57,25,
+  15,47, 7,39,13,45, 5,37,
+  63,31,55,23,61,29,53,21,
+]);
+
+// ── Circular (halftone) matrix 8×8 ───────────────────────────────────────────
+const HALFTONE8 = (() => {
+  const n = 8, cx = 3.5, cy = 3.5;
+  const pts = [];
+  for (let y = 0; y < n; y++)
+    for (let x = 0; x < n; x++)
+      pts.push({ x, y, d: (x - cx) ** 2 + (y - cy) ** 2 });
+  pts.sort((a, b) => a.d - b.d);
+  const m = new Uint8Array(n * n);
+  pts.forEach((p, i) => { m[p.y * n + p.x] = i; });
+  return m;
+})();
+
+// ── Offscreen canvas ──────────────────────────────────────────────────────────
+const offCanvas = document.createElement('canvas');
+const offCtx    = offCanvas.getContext('2d', { willReadFrequently: true });
+
+// ── Pre-allocated buffers (resized when scale changes) ────────────────────────
+let lumBuf  = null;   // Float32Array — grayscale input
+let errBuf  = null;   // Float32Array — error diffusion scratch
+let outBuf  = null;   // Uint8Array   — binary dither output
+let outImg  = null;   // ImageData    — reused output image
+let view32  = null;   // Uint32Array view into outImg.data
+let bufW = 0, bufH = 0;
+
+function ensureBuffers(dw, dh) {
+  if (dw === bufW && dh === bufH) return;
+  const n = dw * dh;
+  lumBuf = new Float32Array(n);
+  errBuf = new Float32Array(n);
+  outBuf = new Uint8Array(n);
+  outImg = new ImageData(dw, dh);
+  view32 = new Uint32Array(outImg.data.buffer);
+  bufW = dw; bufH = dh;
+}
+
+// ── Tone curve ────────────────────────────────────────────────────────────────
+function applyTone(l) {
+  const gamma = Math.pow(2, -(midtones / 50));
+  l = Math.pow(l < 0 ? 0 : l, gamma);
+  const hf = highlights / 100;
+  const hl = l * 2 - 1; if (hl > 0) l += hf * hl * (1 - l) * 0.8;
+  l += (threshold / 50) * 0.35;
+  return l < 0 ? 0 : l > 1 ? 1 : l;
+}
+
+// ── Dithering algorithms ──────────────────────────────────────────────────────
+function bayerDither(lum, out, w, h, matrix, n) {
+  const div = n * n;
+  for (let y = 0; y < h; y++) {
+    const row = y % n;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      out[i] = lum[i] > (matrix[row * n + x % n] + 0.5) / div ? 1 : 0;
+    }
+  }
+}
+
+function floydSteinberg(lum, err, out, w, h) {
+  err.set(lum);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const old = err[i];
+      const nv  = old > 0.5 ? 1 : 0;
+      out[i] = nv;
+      const e = old - nv;
+      if (x + 1 < w)           err[i + 1]     += e * 0.4375;
+      if (y + 1 < h) {
+        if (x > 0)             err[i + w - 1] += e * 0.1875;
+                               err[i + w]     += e * 0.3125;
+        if (x + 1 < w)         err[i + w + 1] += e * 0.0625;
+      }
+    }
+  }
+}
+
+function atkinson(lum, err, out, w, h) {
+  err.set(lum);
+  const f = 0.125;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const old = err[i];
+      const nv  = old > 0.5 ? 1 : 0;
+      out[i] = nv;
+      const e = (old - nv) * f;
+      if (x + 1 < w)           err[i + 1]     += e;
+      if (x + 2 < w)           err[i + 2]     += e;
+      if (y + 1 < h) {
+        if (x > 0)             err[i + w - 1] += e;
+                               err[i + w]     += e;
+        if (x + 1 < w)         err[i + w + 1] += e;
+      }
+      if (y + 2 < h)           err[i + w * 2] += e;
+    }
+  }
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+function drawFrame() {
+  if (video.readyState < 2) return;
+
+  const CW = canvas.width;
+  const CH = canvas.height;
+  const dw = Math.max(1, Math.round(CW / scale));
+  const dh = Math.max(1, Math.round(CH / scale));
+
+  if (offCanvas.width !== dw || offCanvas.height !== dh) {
+    offCanvas.width = dw; offCanvas.height = dh;
+  }
+  ensureBuffers(dw, dh);
+
+  // Sample video at dither resolution
+  offCtx.save();
+  if (flipped) { offCtx.translate(dw, 0); offCtx.scale(-1, 1); }
+  offCtx.drawImage(video, 0, 0, dw, dh);
+  offCtx.restore();
+
+  const src = offCtx.getImageData(0, 0, dw, dh).data;
+  const n   = dw * dh;
+
+  // Grayscale + tone curve → lumBuf
+  for (let i = 0; i < n; i++) {
+    lumBuf[i] = applyTone(
+      src[i * 4]     * 0.000832941 +   // /255 * 0.2126
+      src[i * 4 + 1] * 0.002800784 +   // /255 * 0.7152
+      src[i * 4 + 2] * 0.000283137     // /255 * 0.0722
+    );
+  }
+
+  // Dots: draw circles directly, skip binary pipeline
+  if (ditherMode === 'dots') {
+    const pal = PALETTES[paletteIdx];
+    const bgR = (pal.bg >> 0)  & 0xFF;
+    const bgG = (pal.bg >> 8)  & 0xFF;
+    const bgB = (pal.bg >> 16) & 0xFF;
+    const fgR = (pal.fg >> 0)  & 0xFF;
+    const fgG = (pal.fg >> 8)  & 0xFF;
+    const fgB = (pal.fg >> 16) & 0xFF;
+    ctx.fillStyle = `rgb(${bgR},${bgG},${bgB})`;
+    ctx.fillRect(0, 0, CW, CH);
+    ctx.fillStyle = `rgb(${fgR},${fgG},${fgB})`;
+    ctx.beginPath();
+    for (let y = 0; y < dh; y++) {
+      for (let x = 0; x < dw; x++) {
+        const r = Math.sqrt(lumBuf[y * dw + x]) * scale * 0.54;
+        if (r < 0.3) continue;
+        const cx = x * scale + scale * 0.5;
+        const cy = y * scale + scale * 0.5;
+        ctx.moveTo(cx + r, cy);
+        ctx.arc(cx, cy, r, 0, 6.283185307);
+      }
+    }
+    ctx.fill();
+    return;
+  }
+
+  // Binary dither → outBuf
+  switch (ditherMode) {
+    case 'bayer2':   bayerDither(lumBuf, outBuf, dw, dh, BAYER2, 2); break;
+    case 'bayer4':   bayerDither(lumBuf, outBuf, dw, dh, BAYER4, 4); break;
+    case 'bayer8':   bayerDither(lumBuf, outBuf, dw, dh, BAYER8, 8); break;
+    case 'floyd':    floydSteinberg(lumBuf, errBuf, outBuf, dw, dh);  break;
+    case 'atkinson': atkinson(lumBuf, errBuf, outBuf, dw, dh);        break;
+  }
+
+  // Fill output ImageData using Uint32 writes (4× faster than byte-by-byte)
+  const pal = PALETTES[paletteIdx];
+  const bgC = pal.bg, fgC = pal.fg;
+  for (let i = 0; i < n; i++) view32[i] = outBuf[i] ? fgC : bgC;
+
+  offCtx.putImageData(outImg, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(offCanvas, 0, 0, CW, CH);
+}
+
+// ── RAF loop ──────────────────────────────────────────────────────────────────
+function loop() { drawFrame(); raf = requestAnimationFrame(loop); }
+function startLoop() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); }
+function stopLoop()  { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+
+// ── Canvas resize ─────────────────────────────────────────────────────────────
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const vv  = window.visualViewport;
+  canvas.width  = Math.round((vv ? vv.width  : window.innerWidth)  * dpr);
+  canvas.height = Math.round((vv ? vv.height : window.innerHeight) * dpr);
+}
+window.addEventListener('resize', resizeCanvas);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ── Camera ────────────────────────────────────────────────────────────────────
+let activeStream = null;
+
+function fillSelect(cameras, activeId) {
+  const prev = cameraSelect.value;
+  cameraSelect.innerHTML = '';
+  cameras.forEach((c, i) => {
+    const opt = document.createElement('option');
+    opt.value = c.deviceId;
+    opt.text  = c.label || `Camera ${i + 1}`;
+    cameraSelect.appendChild(opt);
+  });
+  cameraSelect.value = activeId || prev || (cameras[0]?.deviceId ?? '');
+  currentCamId = cameraSelect.value;
+}
+
+async function startCamera(deviceId) {
+  if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
+  video.srcObject = null;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      : { width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false,
+  });
+  activeStream    = stream;
+  video.srcObject = stream;
+  video.play().catch(() => {});
+  currentCamId = stream.getVideoTracks()[0]?.getSettings()?.deviceId ?? null;
+}
+
+async function init() {
+  try {
+    const before = await navigator.mediaDevices.enumerateDevices();
+    fillSelect(before.filter(d => d.kind === 'videoinput'), '');
+    await startCamera(before.filter(d => d.kind === 'videoinput')[0]?.deviceId || null);
+    const after = await navigator.mediaDevices.enumerateDevices();
+    fillSelect(after.filter(d => d.kind === 'videoinput'), currentCamId);
+    msg.style.display      = 'none';
+    controls.style.display = 'flex';
+    startLoop();
+  } catch (e) {
+    msg.textContent = `Error accessing camera: ${e.message}`;
+  }
+}
+
+// ── Control listeners ─────────────────────────────────────────────────────────
+scaleSlider.addEventListener('input', () => { scale = +scaleSlider.value; scaleVal.textContent = scale; });
+thresholdSlider.addEventListener('input', () => { threshold = +thresholdSlider.value; thresholdVal.textContent = threshold; });
+highlightsSlider.addEventListener('input', () => { highlights = +highlightsSlider.value; highlightsVal.textContent = highlights; });
+midtonesSlider.addEventListener('input', () => { midtones = +midtonesSlider.value; midtonesVal.textContent = midtones; });
+
+document.getElementById('ditherGroup').addEventListener('click', e => {
+  const btn = e.target.closest('[data-dither]'); if (!btn) return;
+  ditherMode = btn.dataset.dither;
+  document.querySelectorAll('#ditherGroup .segBtn').forEach(b => b.classList.toggle('active', b === btn));
+});
+
+document.getElementById('paletteGroup').addEventListener('click', e => {
+  const btn = e.target.closest('[data-palette]'); if (!btn) return;
+  paletteIdx = +btn.dataset.palette;
+  document.querySelectorAll('#paletteGroup .segBtn').forEach(b => b.classList.toggle('active', b === btn));
+});
+
+flipBtn.addEventListener('click', () => { flipped = !flipped; flipBtn.classList.toggle('active', flipped); });
+
+// ── Photo ────────────────────────────────────────────────────────────────────────
+const IS_MOBILE = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+function flashEffect() {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;background:#fff;pointer-events:none;z-index:200;transition:opacity 0.5s';
+  document.body.appendChild(el);
+  el.getBoundingClientRect();
+  el.style.opacity = '0';
+  setTimeout(() => el.remove(), 500);
+}
+
+async function saveFile(blob, filename, mimeType) {
+  if (IS_MOBILE && navigator.canShare) {
+    const file = new File([blob], filename, { type: mimeType });
+    if (navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Dithering Filter' }); return; }
+      catch (e) { if (e.name === 'AbortError') return; }
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+photoBtn.addEventListener('click', () => {
+  flashEffect();
+
+  const tmp = document.createElement('canvas');
+  tmp.width  = canvas.width;
+  tmp.height = canvas.height;
+  const tCtx = tmp.getContext('2d');
+
+  // 1. Copia o frame do canvas principal
+  tCtx.drawImage(canvas, 0, 0);
+
+  tmp.toBlob(blob => saveFile(blob, `dithering-${Date.now()}.png`, 'image/png'), 'image/png');
+});
+
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  pauseBtn.classList.toggle('paused', paused);
+  paused ? stopLoop() : startLoop();
+});
+
+cameraSelect.addEventListener('change', async () => {
+  try { await startCamera(cameraSelect.value); currentCamId = cameraSelect.value; } catch (e) { console.error(e); }
+});
+
+// ── QR ────────────────────────────────────────────────────────────────────────
+qrBtn.addEventListener('click', () => {
+  const url = window.location.href;
+  qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url)}`;
+  qrUrl.textContent = url;
+  qrModal.classList.add('open');
+});
+qrClose.addEventListener('click', () => qrModal.classList.remove('open'));
+qrModal.addEventListener('click', e => { if (e.target === qrModal) qrModal.classList.remove('open'); });
+
+init();
+</script>
+</body>
+</html>
